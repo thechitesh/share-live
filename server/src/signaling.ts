@@ -155,6 +155,7 @@ function handleHostJoin(
   client.role = 'host';
   client.roomId = roomId;
   hostClients.set(roomId, client);
+  setRoomLive(roomId);
 
   // Initialize viewer map for room
   if (!viewerClients.has(roomId)) {
@@ -166,6 +167,14 @@ function handleHostJoin(
     roomId,
     viewerCount: getViewerCount(roomId),
   });
+
+  // If viewers joined before host was ready, notify host now
+  const existingViewers = viewerClients.get(roomId);
+  if (existingViewers) {
+    for (const [viewerId] of existingViewers) {
+      send(client, { type: 'viewer:ready', viewerId });
+    }
+  }
 
   console.log(`[Signaling] Host joined room: ${roomId}`);
 }
@@ -235,12 +244,11 @@ function handleViewerJoin(
   // Notify host about new viewer and updated count
   broadcastViewerCount(roomId);
 
-  // If room is LIVE, tell the host to send an offer to this viewer
-  if (room.status === 'LIVE') {
-    const host = hostClients.get(roomId);
-    if (host) {
-      send(host, { type: 'viewer:ready', viewerId: client.clientId });
-    }
+  // Notify host to create WebRTC offer for this viewer if host is present
+  const host = hostClients.get(roomId);
+  if (host) {
+    setRoomLive(roomId);
+    send(host, { type: 'viewer:ready', viewerId: client.clientId });
   }
 
   console.log(`[Signaling] Viewer ${client.clientId} joined room: ${roomId}`);

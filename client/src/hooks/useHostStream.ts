@@ -51,12 +51,18 @@ export function useHostStream(): UseHostStreamReturn {
   const roomIdRef = useRef<string | null>(null);
   const hostNameRef = useRef<string>('');
   const peerConnections = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const pendingCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const clientIdRef = useRef<string | null>(null);
 
   // ── Peer Connection Factory ───────────────────────────────────────────
 
   const createViewerPeer = useCallback((viewerId: string): RTCPeerConnection => {
+    const existing = peerConnections.current.get(viewerId);
+    if (existing) {
+      existing.close();
+    }
+
     const pc = createPeerConnection();
 
     // Add all local tracks to this viewer's peer connection
@@ -86,6 +92,7 @@ export function useHostStream(): UseHostStreamReturn {
       console.log(`[Host] Connection state for viewer ${viewerId}: ${pc.connectionState}`);
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         peerConnections.current.delete(viewerId);
+        pendingCandidates.current.delete(viewerId);
       }
     };
 
@@ -158,8 +165,18 @@ export function useHostStream(): UseHostStreamReturn {
           // Viewer sent back an answer
           {
             const pc = peerConnections.current.get(msg.viewerId);
-            if (pc && pc.signalingState === 'have-local-offer') {
-              await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+            if (pc && (pc.signalingState === 'have-local-offer' || pc.signalingState === 'stable')) {
+              try {
+                await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+                // Drain queued ICE candidates
+                const queued = pendingCandidates.current.get(msg.viewerId) || [];
+                for (const candidate of queued) {
+                  await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.warn);
+                }
+                pendingCandidates.current.delete(msg.viewerId);
+              } catch (e) {
+                console.error('[Host] Error setting remote answer', e);
+              }
             }
           }
           break;

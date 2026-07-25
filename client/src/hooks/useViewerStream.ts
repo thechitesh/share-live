@@ -49,6 +49,7 @@ export function useViewerStream(roomId: string): UseViewerStreamReturn {
   const reconnectAttempts = useRef(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isManualDisconnect = useRef(false);
+  const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
   const remoteStreamRef = useRef<MediaStream | null>(null);
 
   // ── WebRTC Peer Connection ────────────────────────────────────────────
@@ -60,19 +61,32 @@ export function useViewerStream(roomId: string): UseViewerStreamReturn {
 
     const pc = createPeerConnection();
     pcRef.current = pc;
+    pendingCandidates.current = [];
 
     // Collect incoming tracks into a MediaStream
-    const stream = new MediaStream();
-    remoteStreamRef.current = stream;
+    let stream = remoteStreamRef.current;
+    if (!stream) {
+      stream = new MediaStream();
+      remoteStreamRef.current = stream;
+    }
 
     pc.ontrack = (event) => {
-      event.streams[0]?.getTracks().forEach(track => {
-        stream.addTrack(track);
-      });
+      console.log('[Viewer] Track received:', event.track.kind, event.track.id);
+      if (event.streams && event.streams[0]) {
+        event.streams[0].getTracks().forEach((track: MediaStreamTrack) => {
+          if (!stream!.getTracks().some((t: MediaStreamTrack) => t.id === track.id)) {
+            stream!.addTrack(track);
+          }
+        });
+      } else if (event.track) {
+        if (!stream.getTracks().some((t: MediaStreamTrack) => t.id === event.track.id)) {
+          stream.addTrack(event.track);
+        }
+      }
 
       setState(prev => ({ ...prev, remoteStream: stream, status: 'live' }));
 
-      if (remoteVideoRef.current) {
+      if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== stream) {
         remoteVideoRef.current.srcObject = stream;
       }
     };
@@ -143,6 +157,12 @@ export function useViewerStream(roomId: string): UseViewerStreamReturn {
                 type: 'answer',
                 answer: pc.localDescription,
               }));
+
+              // Drain queued candidates
+              for (const candidate of pendingCandidates.current) {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.warn);
+              }
+              pendingCandidates.current = [];
             } catch (err) {
               console.error('[Viewer] Failed to handle offer:', err);
             }
@@ -150,11 +170,16 @@ export function useViewerStream(roomId: string): UseViewerStreamReturn {
           break;
 
         case 'ice-candidate':
-          if (pcRef.current && msg.candidate) {
-            try {
-              await pcRef.current.addIceCandidate(new RTCIceCandidate(msg.candidate));
-            } catch (e) {
-              console.warn('[Viewer] Failed to add ICE candidate', e);
+          if (msg.candidate) {
+            const pc = pcRef.current;
+            if (pc && pc.remoteDescription) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+              } catch (e) {
+                console.warn('[Viewer] Failed to add ICE candidate', e);
+              }
+            } else {
+              pendingCandidates.current.push(msg.candidate);
             }
           }
           break;

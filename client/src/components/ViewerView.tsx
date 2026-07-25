@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useViewerStream } from '../hooks/useViewerStream';
 
 // ── Icons ──────────────────────────────────────────────────────────────────
@@ -18,15 +18,27 @@ export default function ViewerView({ roomId }: ViewerViewProps) {
     remoteVideoRef,
   } = useViewerStream(roomId);
 
-  // Autoplay workaround: click to play on mobile
+  const [isAutoplayBlocked, setIsAutoplayBlocked] = useState(false);
+
+  // Autoplay workaround: click to play if blocked by browser policy
   useEffect(() => {
     const vid = remoteVideoRef.current;
     if (vid && status === 'live') {
-      vid.play().catch(() => {
-        // Autoplay blocked — will need user gesture
+      vid.play().then(() => {
+        setIsAutoplayBlocked(false);
+      }).catch((err) => {
+        console.warn('Autoplay blocked by browser policy:', err);
+        setIsAutoplayBlocked(true);
       });
     }
   }, [status, remoteVideoRef]);
+
+  const handleManualPlay = () => {
+    const vid = remoteVideoRef.current;
+    if (vid) {
+      vid.play().then(() => setIsAutoplayBlocked(false)).catch(console.error);
+    }
+  };
 
   const isLive = status === 'live';
 
@@ -42,7 +54,18 @@ export default function ViewerView({ roomId }: ViewerViewProps) {
         />
 
         {/* Overlays based on status */}
-        {status === 'connecting' && (
+        {isAutoplayBlocked && (
+          <div className="overlay animate-fade-in" style={{ cursor: 'pointer' }} onClick={handleManualPlay}>
+            <div className="ended-icon">🔊</div>
+            <h3>Click to Play Stream</h3>
+            <p className="text-sm opacity-60">Your browser blocked automatic audio playback</p>
+            <button className="btn btn-primary" style={{ marginTop: 8 }}>
+              ▶ Play Stream
+            </button>
+          </div>
+        )}
+
+        {status === 'connecting' && !isAutoplayBlocked && (
           <div className="overlay animate-fade-in">
             <div className="spinner" style={{ width: 40, height: 40 }} />
             <p>Connecting to stream…</p>
