@@ -56,6 +56,15 @@ const IconStop = () => (
   </svg>
 );
 
+const IconFlipCamera = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
+    <path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5" />
+    <polyline points="20 12 17 9 20 6" />
+    <path d="M17 9A6 6 0 0 0 5 9" />
+  </svg>
+);
+
 const IconUsers = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -80,6 +89,7 @@ export default function HostView({ hostName, onExit }: HostViewProps) {
     duration,
     isMuted,
     isCameraOff,
+    facingMode,
     error,
     localVideoRef,
     startPreview,
@@ -87,6 +97,7 @@ export default function HostView({ hostName, onExit }: HostViewProps) {
     stopStream,
     toggleMute,
     toggleCamera,
+    switchCamera,
   } = useHostStream();
 
   const [copied, setCopied] = useState(false);
@@ -145,7 +156,7 @@ export default function HostView({ hostName, onExit }: HostViewProps) {
           autoPlay
           muted
           playsInline
-          style={{ transform: 'scaleX(-1)' }} // Mirror for self-view
+          style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
         />
 
         {/* Live badge */}
@@ -202,23 +213,35 @@ export default function HostView({ hostName, onExit }: HostViewProps) {
 
         {/* Stream controls */}
         <div className="host-media-controls">
-          {/* Go Live button */}
+          {/* Go Live button & preview camera flip */}
           {isPreviewing && (
-            <button
-              id="go-live-btn"
-              className="btn btn-primary btn-lg w-full"
-              onClick={startStream}
-              disabled={isConnecting}
-            >
-              {isConnecting ? (
-                <>
-                  <div className="spinner" />
-                  Connecting…
-                </>
-              ) : (
-                '🔴 Go Live'
-              )}
-            </button>
+            <div className="flex flex-col gap-3 w-full">
+              <div className="flex gap-2">
+                <button
+                  id="go-live-btn"
+                  className="btn btn-primary btn-lg style-flex-1"
+                  style={{ flex: 1 }}
+                  onClick={startStream}
+                  disabled={isConnecting}
+                >
+                  {isConnecting ? (
+                    <>
+                      <div className="spinner" />
+                      Connecting…
+                    </>
+                  ) : (
+                    '🔴 Go Live'
+                  )}
+                </button>
+                <button
+                  className="btn btn-secondary btn-lg btn-icon"
+                  onClick={switchCamera}
+                  title="Flip camera (Front / Back)"
+                >
+                  <IconFlipCamera />
+                </button>
+              </div>
+            </div>
           )}
 
           {/* Live controls */}
@@ -240,6 +263,15 @@ export default function HostView({ hostName, onExit }: HostViewProps) {
                 title={isCameraOff ? 'Enable camera' : 'Disable camera'}
               >
                 <IconCamera off={isCameraOff} />
+              </button>
+
+              <button
+                id="switch-camera-btn"
+                className="btn btn-icon btn-ghost"
+                onClick={switchCamera}
+                title="Flip camera (Front / Back)"
+              >
+                <IconFlipCamera />
               </button>
 
               <button

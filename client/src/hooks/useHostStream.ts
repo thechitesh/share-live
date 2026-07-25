@@ -14,6 +14,7 @@ interface HostStreamState {
   duration: number;
   isMuted: boolean;
   isCameraOff: boolean;
+  facingMode: 'user' | 'environment';
   error: string | null;
 }
 
@@ -24,6 +25,7 @@ interface UseHostStreamReturn extends HostStreamState {
   stopStream: () => void;
   toggleMute: () => void;
   toggleCamera: () => void;
+  switchCamera: () => Promise<void>;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -42,6 +44,7 @@ export function useHostStream(): UseHostStreamReturn {
     duration: 0,
     isMuted: false,
     isCameraOff: false,
+    facingMode: 'user',
     error: null,
   });
 
@@ -333,6 +336,7 @@ export function useHostStream(): UseHostStreamReturn {
       duration: 0,
       isMuted: false,
       isCameraOff: false,
+      facingMode: 'user',
       error: null,
     });
   }, []);
@@ -354,6 +358,68 @@ export function useHostStream(): UseHostStreamReturn {
     videoTrack.enabled = !videoTrack.enabled;
     setState(prev => ({ ...prev, isCameraOff: !videoTrack.enabled }));
   }, []);
+
+  const switchCamera = useCallback(async () => {
+    const currentStream = streamRef.current;
+    if (!currentStream) return;
+
+    const targetMode = state.facingMode === 'user' ? 'environment' : 'user';
+
+    try {
+      // Request video stream with new facingMode
+      const newMediaStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          frameRate: { ideal: 30, max: 60 },
+          facingMode: { exact: targetMode },
+        },
+      }).catch(async () => {
+        // Fallback to ideal if exact isn't supported by browser/device
+        return await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 },
+            facingMode: { ideal: targetMode },
+          },
+        });
+      });
+
+      const newVideoTrack = newMediaStream.getVideoTracks()[0];
+      if (!newVideoTrack) return;
+
+      // Stop old video track & remove from local stream
+      const oldVideoTrack = currentStream.getVideoTracks()[0];
+      if (oldVideoTrack) {
+        currentStream.removeTrack(oldVideoTrack);
+        oldVideoTrack.stop();
+      }
+
+      // Add new video track to local stream
+      currentStream.addTrack(newVideoTrack);
+
+      // Seamlessly replace video track across all active RTCPeerConnections
+      peerConnections.current.forEach((pc) => {
+        const senders = pc.getSenders();
+        const videoSender = senders.find(s => s.track?.kind === 'video' || s.track === null);
+        if (videoSender) {
+          videoSender.replaceTrack(newVideoTrack).catch(console.warn);
+        }
+      });
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = currentStream;
+      }
+
+      setState(prev => ({
+        ...prev,
+        facingMode: targetMode,
+        isCameraOff: false,
+      }));
+    } catch (err) {
+      console.error('[Host] Failed to switch camera:', err);
+    }
+  }, [state.facingMode]);
 
   // ── Effects ────────────────────────────────────────────────────────────
 
@@ -380,5 +446,6 @@ export function useHostStream(): UseHostStreamReturn {
     stopStream,
     toggleMute,
     toggleCamera,
+    switchCamera,
   };
 }
