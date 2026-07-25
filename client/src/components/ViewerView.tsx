@@ -32,6 +32,20 @@ const IconLeave = () => (
   </svg>
 );
 
+const IconFullscreen = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+  </svg>
+);
+
+const IconAspect = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="4" width="20" height="16" rx="2" />
+    <path d="M7 15h4v-4" />
+    <path d="M17 9h-4v4" />
+  </svg>
+);
+
 // ── ViewerView Component ───────────────────────────────────────────────────
 
 interface ViewerViewProps {
@@ -51,6 +65,8 @@ export default function ViewerView({ roomId }: ViewerViewProps) {
   } = useViewerStream(roomId);
 
   const [isAutoplayBlocked, setIsAutoplayBlocked] = useState(false);
+  const [videoFit, setVideoFit] = useState<'cover' | 'contain'>('cover');
+  const [aspectRatio, setAspectRatio] = useState<string>('16 / 9');
 
   // Autoplay workaround: click to play if blocked by browser policy
   useEffect(() => {
@@ -72,17 +88,45 @@ export default function ViewerView({ roomId }: ViewerViewProps) {
     }
   };
 
+  const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const vid = e.currentTarget;
+    if (vid.videoWidth && vid.videoHeight) {
+      if (vid.videoHeight > vid.videoWidth) {
+        // Portrait stream (e.g. mobile phone) -> Use native aspect ratio
+        setAspectRatio(`${vid.videoWidth} / ${vid.videoHeight}`);
+      } else {
+        setAspectRatio('16 / 9');
+      }
+    }
+  };
+
+  const toggleVideoFit = () => {
+    setVideoFit(prev => prev === 'contain' ? 'cover' : 'contain');
+  };
+
+  const toggleFullscreen = () => {
+    const stage = remoteVideoRef.current?.parentElement;
+    if (!stage) return;
+    if (!document.fullscreenElement) {
+      stage.requestFullscreen().catch(console.warn);
+    } else {
+      document.exitFullscreen().catch(console.warn);
+    }
+  };
+
   const isLive = status === 'live';
 
   return (
     <div className="viewer-view">
       {/* ── Video Stage ───────────────────────────────────────────────── */}
-      <div className="viewer-video-stage">
+      <div className="viewer-video-stage" style={{ aspectRatio }}>
         <video
           ref={remoteVideoRef}
           autoPlay
           playsInline
           muted={false}
+          onLoadedMetadata={handleLoadedMetadata}
+          style={{ objectFit: videoFit }}
         />
 
         {/* Overlays based on status */}
@@ -223,6 +267,23 @@ export default function ViewerView({ roomId }: ViewerViewProps) {
               <IconMic off={!isMicOn} />
               <span>{isMicOn ? 'Mute Mic' : 'Speak / Unmute'}</span>
             </button>
+
+            <button
+              className="btn btn-secondary"
+              onClick={toggleVideoFit}
+              title={videoFit === 'cover' ? 'Fit stream in frame' : 'Fill frame (Zoom)'}
+            >
+              <IconAspect />
+              <span>{videoFit === 'cover' ? 'Fit' : 'Fill'}</span>
+            </button>
+
+            <button
+              className="btn btn-secondary btn-icon"
+              onClick={toggleFullscreen}
+              title="Fullscreen"
+            >
+              <IconFullscreen />
+            </button>
           </div>
 
           <button
@@ -240,7 +301,7 @@ export default function ViewerView({ roomId }: ViewerViewProps) {
       <style>{`
         .viewer-view {
           width: 100%;
-          max-width: 1100px;
+          max-width: 1200px;
           margin: 0 auto;
           animation: fade-in 0.5s var(--ease-out);
         }
@@ -250,9 +311,14 @@ export default function ViewerView({ roomId }: ViewerViewProps) {
           background: #000;
           border-radius: var(--radius-xl);
           overflow: hidden;
-          aspect-ratio: 16 / 9;
+          width: 100%;
+          max-height: 80vh;
           box-shadow: var(--shadow-lg);
           border: 1px solid var(--border);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.3s var(--ease-out);
         }
 
         .viewer-video-stage video {
