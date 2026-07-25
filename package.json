@@ -4,8 +4,8 @@
   "private": true,
   "description": "ShareLive lightweight live streaming platform",
   "scripts": {
-    "build:client": "npm --prefix client install && npm --prefix client run build",
-    "build:server": "npm --prefix server install && npm --prefix server run build",
+    "build:client": "cd client && npm install --include=dev && npm run build",
+    "build:server": "cd server && npm install --include=dev && npm run build",
     "build": "npm run build:client && npm run build:server",
     "start": "node server/dist/index.js",
     "dev:server": "npm --prefix server run dev",
