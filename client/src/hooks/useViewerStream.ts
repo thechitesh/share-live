@@ -212,8 +212,12 @@ export function useViewerStream(roomId: string): UseViewerStreamReturn {
           setState(prev => ({ ...prev, viewerCount: msg.count }));
           break;
 
+        case 'host-reconnecting':
+          setState(prev => ({ ...prev, status: 'reconnecting' }));
+          break;
+
         case 'stream-started':
-          setState(prev => ({ ...prev, status: 'waiting' }));
+          setState(prev => ({ ...prev, status: 'live' }));
           break;
 
         case 'stream-ended':

@@ -65,6 +65,14 @@ const IconFlipCamera = () => (
   </svg>
 );
 
+const IconAspect = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="4" width="20" height="16" rx="2" />
+    <path d="M7 15h4v-4" />
+    <path d="M17 9h-4v4" />
+  </svg>
+);
+
 const IconUsers = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -101,6 +109,7 @@ export default function HostView({ hostName, onExit }: HostViewProps) {
   } = useHostStream();
 
   const [copied, setCopied] = useState(false);
+  const [videoFit, setVideoFit] = useState<'cover' | 'contain'>('cover');
   const hasStartedPreview = useRef(false);
 
   // Start camera preview on mount
@@ -122,6 +131,10 @@ export default function HostView({ hostName, onExit }: HostViewProps) {
   const handleStop = () => {
     stopStream();
     onExit();
+  };
+
+  const toggleVideoFit = () => {
+    setVideoFit(prev => prev === 'cover' ? 'contain' : 'cover');
   };
 
   const isLive = status === 'live';
@@ -156,7 +169,10 @@ export default function HostView({ hostName, onExit }: HostViewProps) {
           autoPlay
           muted
           playsInline
-          style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+          style={{
+            transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
+            objectFit: videoFit,
+          }}
         />
 
         {/* Live badge */}
@@ -233,6 +249,15 @@ export default function HostView({ hostName, onExit }: HostViewProps) {
                     '🔴 Go Live'
                   )}
                 </button>
+
+                <button
+                  className="btn btn-secondary btn-lg btn-icon"
+                  onClick={toggleVideoFit}
+                  title={videoFit === 'cover' ? 'Fit camera in frame' : 'Fill frame (Widescreen)'}
+                >
+                  <IconAspect />
+                </button>
+
                 <button
                   className="btn btn-secondary btn-lg btn-icon"
                   onClick={switchCamera}
@@ -275,6 +300,14 @@ export default function HostView({ hostName, onExit }: HostViewProps) {
               </button>
 
               <button
+                className="btn btn-icon btn-ghost"
+                onClick={toggleVideoFit}
+                title={videoFit === 'cover' ? 'Fit camera in frame' : 'Fill frame (Widescreen)'}
+              >
+                <IconAspect />
+              </button>
+
+              <button
                 id="stop-stream-btn"
                 className="btn btn-danger"
                 onClick={handleStop}
@@ -313,7 +346,7 @@ export default function HostView({ hostName, onExit }: HostViewProps) {
           flex-direction: column;
           gap: 24px;
           width: 100%;
-          max-width: 900px;
+          max-width: 1200px;
           margin: 0 auto;
           animation: fade-in 0.5s var(--ease-out);
         }
@@ -324,13 +357,16 @@ export default function HostView({ hostName, onExit }: HostViewProps) {
           border-radius: var(--radius-xl);
           overflow: hidden;
           aspect-ratio: 16 / 9;
+          max-height: 80vh;
           box-shadow: var(--shadow-lg), var(--shadow-glow-red);
           border: 1px solid var(--border);
         }
 
         .host-video-panel video {
+          width: 100%;
+          height: 100%;
           border-radius: 0;
-          object-fit: cover;
+          transition: object-fit 0.2s ease;
         }
 
         .camera-off-icon {

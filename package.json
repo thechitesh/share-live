@@ -9,7 +9,9 @@
     "build": "npm run build:client && npm run build:server",
     "start": "node server/dist/index.js",
     "dev:server": "npm --prefix server run dev",
-    "dev:client": "npm --prefix client run dev"
+    "dev:client": "npm --prefix client run dev",
+    "dev:stop": "kill -9 $(lsof -t -i:3001) 2>/dev/null || true",
+    "dev:stop:all": "kill -9 $(lsof -t -i:3001 -i:5173) 2>/dev/null || true"
   },
   "engines": {
     "node": ">=18.0.0"

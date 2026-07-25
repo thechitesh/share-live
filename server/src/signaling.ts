@@ -152,6 +152,13 @@ function handleHostJoin(
     return;
   }
 
+  // Clear host reconnection timeout if it was active
+  if (room.hostReconnectionTimeout) {
+    clearTimeout(room.hostReconnectionTimeout);
+    room.hostReconnectionTimeout = undefined;
+    console.log(`[Signaling] Host reconnected within grace period for room: ${roomId}`);
+  }
+
   client.role = 'host';
   client.roomId = roomId;
   hostClients.set(roomId, client);
@@ -183,23 +190,34 @@ function handleHostLeave(client: SignalingClient) {
   if (!client.roomId) return;
   const roomId = client.roomId;
 
-  endRoom(roomId);
-  hostClients.delete(roomId);
+  const room = getRoom(roomId);
+  if (room && room.status !== 'ENDED') {
+    console.log(`[Signaling] Host disconnected. Starting 30s grace period for room: ${roomId}`);
 
-  // Notify all viewers
-  broadcastToViewers(roomId, { type: 'stream-ended' });
+    // Notify all viewers that host is temporarily reconnecting
+    broadcastToViewers(roomId, { type: 'host-reconnecting' });
 
-  // Disconnect all viewers
-  const viewers = viewerClients.get(roomId);
-  if (viewers) {
-    for (const [viewerId] of viewers) {
-      removeViewer(roomId, viewerId);
-    }
-    viewerClients.delete(roomId);
+    // Set 30 second grace period to reconnect
+    room.hostReconnectionTimeout = setTimeout(() => {
+      endRoom(roomId);
+      hostClients.delete(roomId);
+
+      // Notify all viewers that stream ended
+      broadcastToViewers(roomId, { type: 'stream-ended' });
+
+      // Disconnect all viewers
+      const viewers = viewerClients.get(roomId);
+      if (viewers) {
+        for (const [viewerId] of viewers) {
+          removeViewer(roomId, viewerId);
+        }
+        viewerClients.delete(roomId);
+      }
+      console.log(`[Signaling] Host grace period expired. Room ended: ${roomId}`);
+    }, 30000);
   }
-
-  console.log(`[Signaling] Host left room: ${roomId}`);
 }
+
 
 function handleViewerJoin(
   client: SignalingClient,

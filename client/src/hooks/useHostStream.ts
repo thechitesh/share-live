@@ -55,6 +55,8 @@ export function useHostStream(): UseHostStreamReturn {
   const hostNameRef = useRef<string>('');
   const peerConnections = useRef<Map<string, RTCPeerConnection>>(new Map());
   const pendingCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const isManualStop = useRef(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const clientIdRef = useRef<string | null>(null);
 
@@ -141,6 +143,7 @@ export function useHostStream(): UseHostStreamReturn {
   // ── WebSocket Setup ───────────────────────────────────────────────────
 
   const setupWebSocket = useCallback((roomId: string, hostName: string) => {
+    isManualStop.current = false;
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
 
@@ -164,10 +167,12 @@ export function useHostStream(): UseHostStreamReturn {
             viewerCount: msg.viewerCount ?? 0,
           }));
 
-          // Start duration timer
-          durationTimerRef.current = setInterval(() => {
-            setState(prev => ({ ...prev, duration: prev.duration + 1 }));
-          }, 1000);
+          // Start duration timer if not already running
+          if (!durationTimerRef.current) {
+            durationTimerRef.current = setInterval(() => {
+              setState(prev => ({ ...prev, duration: prev.duration + 1 }));
+            }, 1000);
+          }
           break;
 
         case 'viewer:ready':
@@ -241,11 +246,17 @@ export function useHostStream(): UseHostStreamReturn {
     };
 
     ws.onerror = () => {
-      setState(prev => ({ ...prev, error: 'WebSocket connection error', status: 'error' }));
+      console.warn('[Host] WebSocket error');
     };
 
     ws.onclose = () => {
       console.log('[Host] WS disconnected');
+      if (!isManualStop.current) {
+        console.log('[Host] Reconnecting WS in 2 seconds...');
+        reconnectTimerRef.current = setTimeout(() => {
+          setupWebSocket(roomId, hostName);
+        }, 2000);
+      }
     };
   }, [sendOfferToViewer]);
 
@@ -311,6 +322,9 @@ export function useHostStream(): UseHostStreamReturn {
   }, [setupWebSocket]);
 
   const stopStream = useCallback(() => {
+    isManualStop.current = true;
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+
     // Notify server
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'host:leave' }));
@@ -366,11 +380,12 @@ export function useHostStream(): UseHostStreamReturn {
     const targetMode = state.facingMode === 'user' ? 'environment' : 'user';
 
     try {
-      // Request video stream with new facingMode
+      // Request video stream with new facingMode & widescreen 16:9 aspect ratio
       const newMediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 1280, max: 1920 },
           height: { ideal: 720, max: 1080 },
+          aspectRatio: { ideal: 1.7777777778 },
           frameRate: { ideal: 30, max: 60 },
           facingMode: { exact: targetMode },
         },
@@ -380,6 +395,7 @@ export function useHostStream(): UseHostStreamReturn {
           video: {
             width: { ideal: 1280, max: 1920 },
             height: { ideal: 720, max: 1080 },
+            aspectRatio: { ideal: 1.7777777778 },
             facingMode: { ideal: targetMode },
           },
         });

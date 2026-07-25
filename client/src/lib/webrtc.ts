@@ -20,10 +20,11 @@ export const RTC_CONFIG: RTCConfiguration = {
 // ── Media Constraints ─────────────────────────────────────────────────────
 
 export const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
-  width:     { ideal: 1280, max: 1920 },
-  height:    { ideal: 720,  max: 1080 },
-  frameRate: { ideal: 30,   max: 60 },
-  facingMode: 'user',
+  width:       { ideal: 1280, max: 1920 },
+  height:      { ideal: 720,  max: 1080 },
+  aspectRatio: { ideal: 1.7777777778 }, // 16:9 Widescreen
+  frameRate:   { ideal: 30,   max: 60 },
+  facingMode:  'user',
 };
 
 export const AUDIO_CONSTRAINTS: MediaTrackConstraints = {

@@ -10,6 +10,7 @@ export interface Room {
   endedAt?: Date;
   viewerIds: Set<string>;
   cleanupTimeout?: ReturnType<typeof setTimeout>;
+  hostReconnectionTimeout?: ReturnType<typeof setTimeout>;
 }
 
 const rooms = new Map<string, Room>();
