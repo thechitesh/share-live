@@ -70,6 +70,17 @@ export function useHostStream(): UseHostStreamReturn {
       addStreamToPeer(pc, streamRef.current);
     }
 
+    // Listen for incoming audio track from viewer
+    pc.ontrack = (event) => {
+      console.log(`[Host] Received incoming track from viewer ${viewerId}:`, event.track.kind);
+      if (event.track.kind === 'audio') {
+        const audioEl = document.createElement('audio');
+        audioEl.autoplay = true;
+        audioEl.srcObject = event.streams[0] || new MediaStream([event.track]);
+        document.body.appendChild(audioEl);
+      }
+    };
+
     // ICE candidate handling
     pc.onicecandidate = (e) => {
       if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
@@ -109,7 +120,7 @@ export function useHostStream(): UseHostStreamReturn {
 
     try {
       const offer = await pc.createOffer({
-        offerToReceiveAudio: false,
+        offerToReceiveAudio: true,
         offerToReceiveVideo: false,
       });
       await pc.setLocalDescription(offer);
@@ -159,6 +170,27 @@ export function useHostStream(): UseHostStreamReturn {
         case 'viewer:ready':
           // A new viewer joined; host needs to send them an offer
           await sendOfferToViewer(msg.viewerId);
+          break;
+
+        case 'offer':
+          // Viewer sent offer (e.g. mic renegotiation) to host
+          if (msg.viewerId) {
+            const pc = peerConnections.current.get(msg.viewerId);
+            if (pc) {
+              try {
+                await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                ws.send(JSON.stringify({
+                  type: 'answer',
+                  answer: pc.localDescription,
+                  viewerId: msg.viewerId,
+                }));
+              } catch (e) {
+                console.error('[Host] Failed to handle viewer offer:', e);
+              }
+            }
+          }
           break;
 
         case 'answer':

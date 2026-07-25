@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createPeerConnection } from '../lib/webrtc';
+import { AUDIO_CONSTRAINTS, createPeerConnection } from '../lib/webrtc';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -11,19 +11,23 @@ export type ViewerStatus =
   | 'stream-ended'
   | 'not-found'
   | 'full'
-  | 'error';
+  | 'error'
+  | 'left';
 
 interface ViewerStreamState {
   status: ViewerStatus;
   remoteStream: MediaStream | null;
   hostName: string | null;
   viewerCount: number;
+  isMicOn: boolean;
   error: string | null;
 }
 
 interface UseViewerStreamReturn extends ViewerStreamState {
   remoteVideoRef: React.RefObject<HTMLVideoElement>;
   disconnect: () => void;
+  toggleMic: () => Promise<void>;
+  leaveRoom: () => void;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -40,6 +44,7 @@ export function useViewerStream(roomId: string): UseViewerStreamReturn {
     remoteStream: null,
     hostName: null,
     viewerCount: 0,
+    isMicOn: false,
     error: null,
   });
 
@@ -51,6 +56,7 @@ export function useViewerStream(roomId: string): UseViewerStreamReturn {
   const isManualDisconnect = useRef(false);
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
   const remoteStreamRef = useRef<MediaStream | null>(null);
+  const localMicStreamRef = useRef<MediaStream | null>(null);
 
   // ── WebRTC Peer Connection ────────────────────────────────────────────
 
@@ -62,6 +68,13 @@ export function useViewerStream(roomId: string): UseViewerStreamReturn {
     const pc = createPeerConnection();
     pcRef.current = pc;
     pendingCandidates.current = [];
+
+    // Attach local mic tracks if active
+    if (localMicStreamRef.current) {
+      localMicStreamRef.current.getTracks().forEach((track: MediaStreamTrack) => {
+        pc.addTrack(track, localMicStreamRef.current!);
+      });
+    }
 
     // Collect incoming tracks into a MediaStream
     let stream = remoteStreamRef.current;
@@ -169,6 +182,17 @@ export function useViewerStream(roomId: string): UseViewerStreamReturn {
           }
           break;
 
+        case 'answer':
+          // Host responded to viewer's mic offer
+          if (pcRef.current) {
+            try {
+              await pcRef.current.setRemoteDescription(new RTCSessionDescription(msg.answer));
+            } catch (e) {
+              console.error('[Viewer] Error setting answer from host:', e);
+            }
+          }
+          break;
+
         case 'ice-candidate':
           if (msg.candidate) {
             const pc = pcRef.current;
@@ -221,7 +245,7 @@ export function useViewerStream(roomId: string): UseViewerStreamReturn {
           const delay = RECONNECT_BASE_DELAY * Math.pow(1.5, attempts);
           console.log(`[Viewer] Reconnecting in ${delay}ms (attempt ${attempts + 1})`);
           setState(prev => {
-            if (prev.status === 'stream-ended' || prev.status === 'not-found') return prev;
+            if (prev.status === 'stream-ended' || prev.status === 'not-found' || prev.status === 'left') return prev;
             return { ...prev, status: 'reconnecting' };
           });
           reconnectTimer.current = setTimeout(() => {
@@ -242,10 +266,67 @@ export function useViewerStream(roomId: string): UseViewerStreamReturn {
 
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
 
-    wsRef.current?.close();
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'viewer:leave' }));
+      wsRef.current.close();
+    }
+
+    if (localMicStreamRef.current) {
+      localMicStreamRef.current.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+      localMicStreamRef.current = null;
+    }
+
     pcRef.current?.close();
     pcRef.current = null;
   }, []);
+
+  const toggleMic = useCallback(async () => {
+    if (state.isMicOn) {
+      // Mute mic
+      if (localMicStreamRef.current) {
+        localMicStreamRef.current.getAudioTracks().forEach((t: MediaStreamTrack) => {
+          t.enabled = false;
+        });
+      }
+      setState(prev => ({ ...prev, isMicOn: false }));
+    } else {
+      try {
+        if (!localMicStreamRef.current) {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
+          localMicStreamRef.current = stream;
+
+          if (pcRef.current) {
+            stream.getAudioTracks().forEach((track: MediaStreamTrack) => {
+              pcRef.current!.addTrack(track, stream);
+            });
+
+            // Send renegotiation offer to host
+            const offer = await pcRef.current.createOffer();
+            await pcRef.current.setLocalDescription(offer);
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({
+                type: 'offer',
+                offer: pcRef.current.localDescription,
+              }));
+            }
+          }
+        } else {
+          localMicStreamRef.current.getAudioTracks().forEach((t: MediaStreamTrack) => {
+            t.enabled = true;
+          });
+        }
+        setState(prev => ({ ...prev, isMicOn: true }));
+      } catch (err) {
+        console.error('[Viewer] Failed to access mic:', err);
+        setState(prev => ({ ...prev, error: 'Microphone permission denied' }));
+      }
+    }
+  }, [state.isMicOn]);
+
+  const leaveRoom = useCallback(() => {
+    disconnect();
+    setState(prev => ({ ...prev, status: 'left' }));
+  }, [disconnect]);
 
   // ── Effects ────────────────────────────────────────────────────────────
 
@@ -269,5 +350,7 @@ export function useViewerStream(roomId: string): UseViewerStreamReturn {
     ...state,
     remoteVideoRef,
     disconnect,
+    toggleMic,
+    leaveRoom,
   };
 }

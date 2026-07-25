@@ -268,25 +268,37 @@ function handleViewerLeave(client: SignalingClient) {
 
 function handleOffer(
   client: SignalingClient,
-  msg: { type: 'offer'; offer: SDPInit; viewerId: string }
+  msg: { type: 'offer'; offer: SDPInit; viewerId?: string }
 ) {
-  // Host sends offer to a specific viewer
-  if (client.role !== 'host' || !client.roomId) return;
+  if (!client.roomId) return;
 
-  const viewers = viewerClients.get(client.roomId);
-  const viewer = viewers?.get(msg.viewerId);
+  if (client.role === 'host' && msg.viewerId) {
+    // Host sends offer to a specific viewer
+    const viewers = viewerClients.get(client.roomId);
+    const viewer = viewers?.get(msg.viewerId);
 
-  if (viewer) {
-    send(viewer, {
-      type: 'offer',
-      offer: msg.offer,
-      hostId: client.clientId,
-    });
-    // Mark room as LIVE when host publishes first offer
-    const room = getRoom(client.roomId);
-    if (room && room.status !== 'LIVE') {
-      setRoomLive(client.roomId);
-      broadcastToViewers(client.roomId, { type: 'stream-started' });
+    if (viewer) {
+      send(viewer, {
+        type: 'offer',
+        offer: msg.offer,
+        hostId: client.clientId,
+      });
+      // Mark room as LIVE when host publishes first offer
+      const room = getRoom(client.roomId);
+      if (room && room.status !== 'LIVE') {
+        setRoomLive(client.roomId);
+        broadcastToViewers(client.roomId, { type: 'stream-started' });
+      }
+    }
+  } else if (client.role === 'viewer') {
+    // Viewer sends offer (e.g. mic renegotiation) to host
+    const host = hostClients.get(client.roomId);
+    if (host) {
+      send(host, {
+        type: 'offer',
+        offer: msg.offer,
+        viewerId: client.clientId,
+      });
     }
   }
 }
@@ -295,11 +307,20 @@ function handleAnswer(
   client: SignalingClient,
   msg: { type: 'answer'; answer: SDPInit; hostId?: string; viewerId?: string }
 ) {
-  if (client.role === 'viewer' && client.roomId) {
+  if (!client.roomId) return;
+
+  if (client.role === 'viewer') {
     // Viewer sends answer → forward to host
     const host = hostClients.get(client.roomId);
     if (host) {
       send(host, { type: 'answer', answer: msg.answer, viewerId: client.clientId });
+    }
+  } else if (client.role === 'host' && msg.viewerId) {
+    // Host sends answer → forward to specific viewer
+    const viewers = viewerClients.get(client.roomId);
+    const viewer = viewers?.get(msg.viewerId);
+    if (viewer) {
+      send(viewer, { type: 'answer', answer: msg.answer, hostId: client.clientId });
     }
   }
 }
